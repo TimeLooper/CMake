@@ -987,8 +987,14 @@ void cmGlobalFastbuildGenerator::AddCompiler(std::string const& language,
 
   // Add the language to the compiler's name
   FastbuildCompiler compilerDef;
-  compilerDef.ExtraVariables["Root"] =
-    cmSystemTools::GetFilenamePath(compilerLocation);
+  std::string const compilerRoot = cmSystemTools::GetFilenamePath(compilerLocation);
+  compilerDef.ExtraVariables["Root"] = compilerRoot;
+#ifdef WIN32
+  if (!cmSystemTools::PathExists(compilerRoot + "/" + i18nNum)) {
+    LCID lcid = GetUserDefaultLCID();
+    i18nNum = std::to_string(lcid);
+  }
+#endif // WIN32
   compilerDef.Name = FASTBUILD_COMPILER_PREFIX + language;
   compilerDef.Executable = compilerLocation;
   compilerDef.CmakeCompilerID =
@@ -1049,12 +1055,14 @@ void cmGlobalFastbuildGenerator::AddCompiler(std::string const& language,
       compilerDef.ExtraFiles.push_back(
         "$Root$/tbbmalloc.dll"); // Required as of 16.2 (14.22.27905)
       compilerDef.ExtraFiles.push_back("$Root$/vcruntime140.dll");
-      compilerDef.ExtraFiles.push_back(
-        "$Root$/vcruntime140_1.dll"); // Required as of 16.5.1 (14.25.28610)
+      if (cmSystemTools::FileExists(compilerRoot + "/vcruntime140_1.dll")) {
+        compilerDef.ExtraFiles.push_back("$Root$/vcruntime140_1.dll"); // Required as of 16.5.1 (14.25.28610)
+      }
       compilerDef.ExtraFiles.push_back("$Root$/" + i18nNum + "/clui.dll");
       compilerDef.ExtraFiles.push_back(
         "$Root$/" + i18nNum + "/mspft140ui.dll"); // Localized messages for
                                                   // static analysis
+      MSVCToolsetVersion = "v142";
     }
     // Visual Studio 15 (19.10 to 19.19)
     else if (cmSystemTools::VersionCompare(cmSystemTools::OP_GREATER_EQUAL,
@@ -1073,6 +1081,16 @@ void cmGlobalFastbuildGenerator::AddCompiler(std::string const& language,
       compilerDef.ExtraFiles.push_back("$Root$/msvcp140.dll");
       compilerDef.ExtraFiles.push_back("$Root$/vcruntime140.dll");
       compilerDef.ExtraFiles.push_back("$Root$/" + i18nNum + "/clui.dll");
+      MSVCToolsetVersion = "v141";
+    }
+
+    auto arch = cmSystemTools::GetFilenameName(compilerRoot);
+    if (arch == "x86") {
+      Platform = "Win32";
+    } else if (arch == "x64") {
+      Platform = "x64";
+    } else {
+      Platform = "x64";
     }
   }
   // TODO: Handle Intel compiler
@@ -1448,6 +1466,9 @@ void cmGlobalFastbuildGenerator::WriteIDEProjects()
     WriteIDEProjectConfig(VSProj.ProjectConfigs);
     WriteVSBuildCommands();
     WriteIDEProjectCommon(VSProj);
+    if (VSProj.PchHeader != "") {
+      WriteVariable("ForcedIncludes", Quote(VSProj.PchHeader), 1);
+    }
     *this->BuildFileStream << "}\n\n";
 
     // XCode
@@ -1513,6 +1534,11 @@ void cmGlobalFastbuildGenerator::WriteIDEProjectCommon(
   WriteVariable("ProjectBasePath", Quote(project.ProjectBasePath), 1);
   // So Fastbuild will pick up files relative to CMakeLists.txt
   WriteVariable("ProjectInputPaths", Quote(project.ProjectBasePath), 1);
+  WriteVariable("PlatformToolset", Quote(this->MSVCToolsetVersion), 1);
+  if (project.DebuggerWorkingDirectory != "") {
+    WriteVariable("LocalDebuggerWorkingDirectory",
+        Quote(project.DebuggerWorkingDirectory), 1);
+  }
 }
 
 void cmGlobalFastbuildGenerator::WriteIDEProjectConfig(
@@ -1860,7 +1886,7 @@ cmGlobalFastbuildGenerator::GetTargetByOutputName(
 }
 
 void cmGlobalFastbuildGenerator::AddIDEProject(FastbuildTarget const& target,
-                                               std::string const& config)
+                                               std::string const& config, cmGeneratorTarget* gt)
 {
   auto const& configs = GetConfigNames();
   if (std::find(configs.begin(), configs.end(), config) == configs.end()) {
@@ -1878,6 +1904,12 @@ void cmGlobalFastbuildGenerator::AddIDEProject(FastbuildTarget const& target,
                                      '/', target.BaseName + ".vcxproj");
   VSProject.ProjectBasePath = target.BasePath;
   VSProject.folder = relativeSubdir;
+  VSProject.PchHeader = target.PchHeader;
+  VSProject.DebuggerWorkingDirectory =
+    gt->GetProperty("VS_DEBUGGER_WORKING_DIRECTORY");
+  if (VSProject.DebuggerWorkingDirectory.empty()) {
+    VSProject.DebuggerWorkingDirectory = this->GetDebuggerWorkingDirectory(gt);
+  }
   // XCode
   auto& XCodeProject = IDEProject.second;
   XCodeProject.Alias = target.BaseName + "-xcodeproj";
@@ -1885,9 +1917,15 @@ void cmGlobalFastbuildGenerator::AddIDEProject(FastbuildTarget const& target,
     cmStrCat("XCode/Projects/", relativeSubdir, '/',
              target.BaseName + ".xcodeproj/project.pbxproj");
   XCodeProject.ProjectBasePath = target.BasePath;
+  XCodeProject.DebuggerWorkingDirectory =
+    gt->GetProperty("XCODE_SCHEME_WORKING_DIRECTORY");
+  if (XCodeProject.DebuggerWorkingDirectory.empty()) {
+    XCodeProject.DebuggerWorkingDirectory =
+      this->GetDebuggerWorkingDirectory(gt);
+  }
 
   IDEProjectConfig VSConfig;
-  VSConfig.Platform = "X64";
+  VSConfig.Platform = this->Platform;
   IDEProjectConfig XCodeConfig;
   VSConfig.Target = XCodeConfig.Target = target.Name;
   VSConfig.Config = XCodeConfig.Config = config.empty() ? "DEFAULT" : config;

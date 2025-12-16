@@ -964,7 +964,7 @@ void cmFastbuildNormalTargetGenerator::Generate()
 
   fastbuildTarget.BasePath = this->GetMakefile()->GetCurrentSourceDirectory();
 
-  this->GetGlobalGenerator()->AddIDEProject(fastbuildTarget, Config);
+  this->GetGlobalGenerator()->AddIDEProject(fastbuildTarget, Config, this->GeneratorTarget);
 
   AddStampExeIfApplicable(fastbuildTarget);
 
@@ -1411,6 +1411,8 @@ void cmFastbuildNormalTargetGenerator::GenerateObjects(FastbuildTarget& target)
     // Do not generate separate node for PCH source file.
     if (this->GeneratorTarget->GetPchSource(Config, srcFile.GetLanguage()) ==
         pathToFile) {
+      target.PchHeader =
+        this->GeneratorTarget->GetPchHeader(Config, srcFile.GetLanguage());
       continue;
     }
 
