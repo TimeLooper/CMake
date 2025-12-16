@@ -254,6 +254,7 @@ struct IDEProjectCommon
   std::string Alias;
   std::string ProjectOutput;
   std::string ProjectBasePath;
+  std::string DebuggerWorkingDirectory;
 
   std::vector<IDEProjectConfig> ProjectConfigs;
 };
@@ -265,6 +266,7 @@ struct XCodeProject : public IDEProjectCommon
 struct VCXProject : public IDEProjectCommon
 {
   std::string folder;
+  std::string PchHeader;
 };
 
 struct FastbuildLinkerNode
@@ -327,6 +329,7 @@ struct FastbuildTarget : public FastbuildTargetBase
   std::vector<FastbuildCopyNode> CopyNodes;
   FastbuildExecNodes PreLinkExecNodes;
   FastbuildExecNodes PostBuildExecNodes;
+  std::string PchHeader;
   bool IsGlobal = false;
   bool ExcludeFromAll = false;
   bool AllowDistribution = true;
@@ -545,7 +548,8 @@ public:
   void AddCompiler(std::string const& lang, cmMakefile* mf);
   void AddLauncher(std::string const& prefix, std::string const& launcher,
                    std::string const& lang, std::string const& args);
-  void AddIDEProject(FastbuildTarget const& target, std::string const& config);
+  void AddIDEProject(FastbuildTarget const& target, std::string const& config,
+                     cmGeneratorTarget* gt);
 
   template <class T>
   void AddTarget(T target)
@@ -615,6 +619,8 @@ public:
   bool UsingRelativePaths = false;
 
 private:
+  std::string MSVCToolsetVersion;
+  std::string Platform;
   std::unordered_set<std::string> AllFilesToClean;
   // https://cmake.org/cmake/help/latest/module/ExternalProject.html#command:externalproject_add_steptargets
   std::unordered_set<std::string /*exec name*/> AllGeneratedCommands;
