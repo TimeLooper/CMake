@@ -1096,8 +1096,14 @@ void cmFastbuildNormalTargetGenerator::CollapseAllExecsIntoOneScriptfile(
                  << " " << exec.ExecArguments << '\n';
     } else {
 #if defined(_WIN32)
-      scriptFile << "call "
+      scriptFile << "setlocal\n"
+                 << "call "
                  << cmSystemTools::ConvertToWindowsOutputPath(exec.ScriptFile)
+                 << "\nif %errorlevel% neq 0 goto :cmEnd\n"
+                 << "endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone\n"
+                 << ":cmErrorLevel\n"
+                 << "exit /b %1\n"
+                 << ":cmDone\n"
                  << '\n';
 #else
       scriptFile << cmSystemTools::ConvertToOutputPath(shell) << " "
