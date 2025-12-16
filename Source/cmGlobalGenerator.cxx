@@ -1185,7 +1185,7 @@ void cmGlobalGenerator::SetLanguageEnabledMaps(std::string const& l,
     std::string outputExtension = *p;
     this->LanguageToOutputExtension[l] = outputExtension;
     this->OutputExtensions[outputExtension] = outputExtension;
-    if (cmHasPrefix(outputExtension, ".")) {
+    if (cmHasPrefix(outputExtension, '.')) {
       outputExtension = outputExtension.substr(1);
       this->OutputExtensions[outputExtension] = outputExtension;
     }
@@ -1579,6 +1579,12 @@ bool cmGlobalGenerator::Compute()
 
   this->AddExtraIDETargets();
 
+#ifndef CMAKE_BOOTSTRAP
+  for (auto const& localGen : this->LocalGenerators) {
+    localGen->ResolveSourceGroupGenex();
+  }
+#endif
+
   // Trace the dependencies, after that no custom commands should be added
   // because their dependencies might not be handled correctly
   for (auto const& localGen : this->LocalGenerators) {
@@ -1609,6 +1615,7 @@ bool cmGlobalGenerator::Compute()
 
   for (auto const& localGen : this->LocalGenerators) {
     localGen->ComputeHomeRelativeOutputPath();
+    localGen->ComputeSourceGroupSearchIndex();
   }
 
   return true;
@@ -1787,7 +1794,17 @@ void cmGlobalGenerator::ComputeTargetOrder(cmGeneratorTarget const* gt,
 bool cmGlobalGenerator::ApplyCXXStdTargets()
 {
   for (auto const& gen : this->LocalGenerators) {
-    for (auto const& tgt : gen->GetGeneratorTargets()) {
+
+    // tgt->ApplyCXXStd can create targets itself, so we need iterators which
+    // won't be invalidated by that target creation
+    auto const& genTgts = gen->GetGeneratorTargets();
+    std::vector<cmGeneratorTarget*> existingTgts;
+    existingTgts.reserve(genTgts.size());
+    for (auto const& tgt : genTgts) {
+      existingTgts.push_back(tgt.get());
+    }
+
+    for (auto const& tgt : existingTgts) {
       if (!tgt->ApplyCXXStdTargets()) {
         return false;
       }

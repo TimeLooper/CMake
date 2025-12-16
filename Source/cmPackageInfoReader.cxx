@@ -129,7 +129,7 @@ bool CheckSchemaVersion(Json::Value const& data)
   // Check that we understand this version.
   return cmSystemTools::VersionCompare(cmSystemTools::OP_GREATER_EQUAL,
                                        version, "0.13") &&
-    cmSystemTools::VersionCompare(cmSystemTools::OP_LESS, version, "1");
+    cmSystemTools::VersionCompare(cmSystemTools::OP_LESS, version, "0.14");
 
   // TODO Eventually this probably needs to return the version tuple, and
   // should share code with cmPackageInfoReader::ParseVersion.
@@ -223,7 +223,7 @@ std::vector<std::string> ReadList(Json::Value const& data, char const* key)
 std::string NormalizeTargetName(std::string const& name,
                                 std::string const& context)
 {
-  if (cmHasLiteralPrefix(name, ":")) {
+  if (cmHasPrefix(name, ':')) {
     return cmStrCat(context, ':', name);
   }
 

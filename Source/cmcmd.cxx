@@ -5,6 +5,7 @@
 #include <functional>
 #include <iomanip>
 #include <iterator>
+#include <limits>
 
 #include <cm/optional>
 #include <cmext/algorithm>
@@ -180,7 +181,7 @@ bool cmTarFilesFrom(std::string const& file, std::vector<std::string>& files)
     }
     if (cmHasLiteralPrefix(line, "--add-file=")) {
       files.push_back(line.substr(11));
-    } else if (cmHasLiteralPrefix(line, "-")) {
+    } else if (cmHasPrefix(line, '-')) {
       cmSystemTools::Error(cmStrCat("-E tar --files-from='", file,
                                     "' file invalid line:\n", line, '\n'));
       return false;
@@ -749,9 +750,11 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string> const& args,
       // If error occurs we want to continue copying next files.
       bool return_value = false;
       for (auto const& file : files) {
-        if (!cmsys::SystemTools::CopyFileAlways(file, *targetArg)) {
+        cmsys::SystemTools::CopyStatus const status =
+          cmSystemTools::CopyFileAlways(file, *targetArg);
+        if (!status) {
           std::cerr << "Error copying file \"" << file << "\" to \""
-                    << *targetArg << "\".\n";
+                    << *targetArg << "\": " << status.GetString() << '\n';
           return_value = true;
         }
       }
@@ -771,9 +774,12 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string> const& args,
       // If error occurs we want to continue copying next files.
       bool return_value = false;
       for (auto const& arg : cmMakeRange(args).advance(2).retreat(1)) {
-        if (!cmSystemTools::CopyFileIfDifferent(arg, args.back())) {
+        cmsys::SystemTools::CopyStatus const status =
+          cmSystemTools::CopyFileIfDifferent(arg, args.back());
+        if (!status) {
           std::cerr << "Error copying file (if different) from \"" << arg
-                    << "\" to \"" << args.back() << "\".\n";
+                    << "\" to \"" << args.back()
+                    << "\": " << status.GetString() << '\n';
           return_value = true;
         }
       }
@@ -793,9 +799,12 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string> const& args,
       // If error occurs we want to continue copying next files.
       bool return_value = false;
       for (auto const& arg : cmMakeRange(args).advance(2).retreat(1)) {
-        if (!cmSystemTools::CopyFileIfNewer(arg, args.back())) {
+        cmsys::SystemTools::CopyStatus const status =
+          cmSystemTools::CopyFileIfNewer(arg, args.back());
+        if (!status) {
           std::cerr << "Error copying file (if newer) from \"" << arg
-                    << "\" to \"" << args.back() << "\".\n";
+                    << "\" to \"" << args.back()
+                    << "\": " << status.GetString() << '\n';
           return_value = true;
         }
       }
@@ -818,9 +827,11 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string> const& args,
       }
 
       for (auto const& arg : cmMakeRange(args).advance(2).retreat(1)) {
-        if (!cmSystemTools::CopyADirectory(arg, args.back(), when)) {
+        cmsys::Status const status =
+          cmSystemTools::CopyADirectory(arg, args.back(), when);
+        if (!status) {
           std::cerr << "Error copying directory from \"" << arg << "\" to \""
-                    << args.back() << "\".\n";
+                    << args.back() << "\": " << status.GetString() << '\n';
           return_value = true;
         }
       }
@@ -1023,8 +1034,10 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string> const& args,
       // If an error occurs, we want to continue making directories.
       bool return_value = false;
       for (auto const& arg : cmMakeRange(args).advance(2)) {
-        if (!cmSystemTools::MakeDirectory(arg)) {
-          std::cerr << "Error creating directory \"" << arg << "\".\n";
+        cmsys::Status const status = cmSystemTools::MakeDirectory(arg);
+        if (!status) {
+          std::cerr << "Error creating directory \"" << arg
+                    << "\": " << status.GetString() << '\n';
           return_value = true;
         }
       }
@@ -1072,7 +1085,7 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string> const& args,
       bool doing_options = true;
       bool at_least_one_file = false;
       for (auto const& arg : cmMakeRange(args).advance(2)) {
-        if (doing_options && cmHasLiteralPrefix(arg, "-")) {
+        if (doing_options && cmHasPrefix(arg, '-')) {
           if (arg == "--") {
             doing_options = false;
           }
@@ -1150,7 +1163,7 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string> const& args,
         std::cerr << "-E capabilities accepts no additional arguments\n";
         return 1;
       }
-      cmake cm(cmake::RoleInternal, cmState::Unknown);
+      cmake cm(cmState::Role::Internal);
       std::cout << cm.ReportCapabilities();
       return 0;
     }
@@ -1227,7 +1240,7 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string> const& args,
           // Destroy console buffers to drop cout/cerr encoding transform.
           console.reset();
           cmCatFile(arg);
-        } else if (doing_options && cmHasLiteralPrefix(arg, "-")) {
+        } else if (doing_options && cmHasPrefix(arg, '-')) {
           if (arg == "--") {
             doing_options = false;
           } else {
@@ -1398,7 +1411,7 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string> const& args,
 
       // Create a cmake object instance to process dependencies.
       // All we need is the `set` command.
-      cmake cm(cmake::RoleScript, cmState::Unknown);
+      cmake cm(cmState::Role::Script);
       std::string gen;
       std::string homeDir;
       std::string startDir;
@@ -1570,10 +1583,13 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string> const& args,
       std::vector<std::string> files;
       std::string mtime;
       std::string format;
+      int numThreads = 1;
+      int compressionLevel = 0;
+      bool compressionLevelFlagPassed = false;
       cmSystemTools::cmTarExtractTimestamps extractTimestamps =
         cmSystemTools::cmTarExtractTimestamps::Yes;
       cmSystemTools::cmTarCompression compress =
-        cmSystemTools::TarCompressNone;
+        cmSystemTools::TarCompressAuto;
       int nCompress = 0;
       bool doing_options = true;
       for (auto const& arg : cmMakeRange(args).advance(4)) {
@@ -1583,8 +1599,64 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string> const& args,
           } else if (arg == "--zstd") {
             compress = cmSystemTools::TarCompressZstd;
             ++nCompress;
+          } else if (arg == "--lzma") {
+            compress = cmSystemTools::TarCompressLZMA;
+            ++nCompress;
           } else if (cmHasLiteralPrefix(arg, "--mtime=")) {
             mtime = arg.substr(8);
+          } else if (cmHasLiteralPrefix(arg, "--cmake-tar-threads=")) {
+            std::string const& numThreadsStr = arg.substr(20);
+            long numThreadsLong = 0;
+            if (!cmStrToLong(numThreadsStr, &numThreadsLong)) {
+              cmSystemTools::Error(
+                cmStrCat("Invalid --cmake-tar-threads value: '", numThreadsStr,
+                         "' - not a number"));
+              return 1;
+            }
+            if (numThreadsLong >
+                std::numeric_limits<decltype(numThreads)>::max()) {
+              cmSystemTools::Error(
+                cmStrCat("Invalid --cmake-tar-threads value: '", numThreadsStr,
+                         "' - too large"));
+              return 1;
+            }
+            if (numThreadsLong <
+                std::numeric_limits<decltype(numThreads)>::min()) {
+              cmSystemTools::Error(
+                cmStrCat("Invalid --cmake-tar-threads value: '", numThreadsStr,
+                         "' - too small"));
+              return 1;
+            }
+
+            numThreads = static_cast<decltype(numThreads)>(numThreadsLong);
+          } else if (cmHasLiteralPrefix(arg,
+                                        "--cmake-tar-compression-level=")) {
+            std::string const& compressionLevelStr = arg.substr(30);
+            long compressionLevelLong = 0;
+            if (!cmStrToLong(compressionLevelStr, &compressionLevelLong)) {
+              cmSystemTools::Error(
+                cmStrCat("Invalid --cmake-tar-compression-level value: '",
+                         compressionLevelStr, "' - not a number"));
+              return 1;
+            }
+            if (compressionLevelLong >
+                std::numeric_limits<decltype(compressionLevel)>::max()) {
+              cmSystemTools::Error(
+                cmStrCat("Invalid --cmake-tar-compression-level value: '",
+                         compressionLevelStr, "' - too large"));
+              return 1;
+            }
+            if (compressionLevelLong <
+                std::numeric_limits<decltype(compressionLevel)>::min()) {
+              cmSystemTools::Error(
+                cmStrCat("Invalid --cmake-tar-compression-level value: '",
+                         compressionLevelStr, "' - too small"));
+              return 1;
+            }
+
+            compressionLevel =
+              static_cast<decltype(compressionLevel)>(compressionLevelLong);
+            compressionLevelFlagPassed = true;
           } else if (cmHasLiteralPrefix(arg, "--files-from=")) {
             std::string const& files_from = arg.substr(13);
             if (!cmTarFilesFrom(files_from, files)) {
@@ -1645,16 +1717,33 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string> const& args,
           }
         }
       }
-      if ((format == "7zip" || format == "zip") && nCompress > 0) {
-        cmSystemTools::Error("Can not use compression flags with format: " +
-                             format);
-        return 1;
-      }
       if (nCompress > 1) {
         cmSystemTools::Error("Can only compress a tar file one way; "
                              "at most one flag of z, j, or J may be used");
         return 1;
       }
+      if (compressionLevelFlagPassed) {
+        if (nCompress == 0 && format != "zip" && format != "7zip") {
+          cmSystemTools::Error("Can not use --cmake-tar-compression-level "
+                               "without compression algorithm selection");
+          return 1;
+        }
+
+        constexpr int minCompressionLevel = 0;
+        int maxCompressionLevel = 9;
+        if (compress == cmSystemTools::TarCompressZstd && format != "zip") {
+          maxCompressionLevel = 19;
+        }
+
+        if (compressionLevel < minCompressionLevel ||
+            compressionLevel > maxCompressionLevel) {
+          cmSystemTools::Error(cmStrCat(
+            "Compression level must be between ", minCompressionLevel, " and ",
+            maxCompressionLevel, ". Got ", compressionLevel));
+          return 1;
+        }
+      }
+
       if (action == cmSystemTools::TarActionList) {
         if (!cmSystemTools::ListTar(outFile, files, verbose)) {
           cmSystemTools::Error("Problem listing tar: " + outFile);
@@ -1665,7 +1754,8 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string> const& args,
           std::cerr << "tar: No files or directories specified\n";
         }
         if (!cmSystemTools::CreateTar(outFile, files, {}, compress, verbose,
-                                      mtime, format)) {
+                                      mtime, format, compressionLevel,
+                                      numThreads)) {
           cmSystemTools::Error("Problem creating tar: " + outFile);
           return 1;
         }
@@ -1752,7 +1842,7 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string> const& args,
       }
       // Create a cmake object instance to process dependencies.
       // All we need is the `set` command.
-      cmake cm(cmake::RoleScript, cmState::Unknown);
+      cmake cm(cmState::Role::Script);
       std::string homeDir;
       std::string startDir;
       std::string homeOutDir;
@@ -2404,13 +2494,13 @@ bool cmVSLink::Parse(std::vector<std::string>::const_iterator argBeg,
   // Parse our own arguments.
   std::string intDir;
   auto arg = argBeg;
-  while (arg != argEnd && cmHasLiteralPrefix(*arg, "-")) {
+  while (arg != argEnd && cmHasPrefix(*arg, '-')) {
     if (*arg == "--") {
       ++arg;
       break;
     }
     if (*arg == "--manifests") {
-      for (++arg; arg != argEnd && !cmHasLiteralPrefix(*arg, "-"); ++arg) {
+      for (++arg; arg != argEnd && !cmHasPrefix(*arg, '-'); ++arg) {
         this->UserManifests.push_back(*arg);
       }
     } else if (cmHasLiteralPrefix(*arg, "--intdir=")) {

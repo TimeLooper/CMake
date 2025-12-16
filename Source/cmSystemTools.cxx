@@ -642,7 +642,7 @@ std::vector<std::string> cmSystemTools::HandleResponseFile(
 {
   std::vector<std::string> arg_full;
   for (std::string const& arg : cmMakeRange(argBeg, argEnd)) {
-    if (cmHasLiteralPrefix(arg, "@")) {
+    if (cmHasPrefix(arg, '@')) {
       cmsys::ifstream responseFile(arg.substr(1).c_str(), std::ios::in);
       if (!responseFile) {
         std::string error = cmStrCat("failed to open for reading (",
@@ -1646,20 +1646,6 @@ cmSystemTools::CopyResult cmSystemTools::CopySingleFile(
   return CopyResult::Success;
 }
 
-bool cmSystemTools::CopyFileIfNewer(std::string const& source,
-                                    std::string const& destination)
-{
-  return cmsys::SystemTools::CopyFileIfNewer(source, destination).IsSuccess();
-}
-
-bool cmSystemTools::CopyADirectory(std::string const& source,
-                                   std::string const& destination,
-                                   CopyWhen when)
-{
-  return cmsys::SystemTools::CopyADirectory(source, destination, when)
-    .IsSuccess();
-}
-
 bool cmSystemTools::RenameFile(std::string const& oldname,
                                std::string const& newname)
 {
@@ -2036,7 +2022,7 @@ std::string cmSystemTools::RelativeIfUnder(std::string const& top,
   if (in == top) {
     out = ".";
   } else if (cmSystemTools::IsSubDirectory(in, top)) {
-    out = in.substr(top.size() + 1);
+    out = in.substr(top.size() + (top.back() == '/' ? 0 : 1));
   } else {
     out = in;
   }
@@ -2392,7 +2378,8 @@ bool cmSystemTools::CreateTar(std::string const& outFileName,
                               std::string const& workingDirectory,
                               cmTarCompression compressType, bool verbose,
                               std::string const& mtime,
-                              std::string const& format, int compressionLevel)
+                              std::string const& format, int compressionLevel,
+                              int numThreads)
 {
 #if !defined(CMAKE_BOOTSTRAP)
   cmWorkingDirectory workdir(cmSystemTools::GetLogicalWorkingDirectory());
@@ -2422,13 +2409,26 @@ bool cmSystemTools::CreateTar(std::string const& outFileName,
     case TarCompressZstd:
       compress = cmArchiveWrite::CompressZstd;
       break;
+    case TarCompressLZMA:
+      compress = cmArchiveWrite::CompressLZMA;
+      break;
+    case TarCompressAuto:
+      // Kept for backwards compatibility with pre-4.3 versions of CMake
+      if (format == "zip") {
+        compress = cmArchiveWrite::CompressGZip;
+      } else if (format == "7zip") {
+        compress = cmArchiveWrite::CompressLZMA;
+      } else {
+        compress = cmArchiveWrite::CompressNone;
+      }
+      break;
     case TarCompressNone:
       compress = cmArchiveWrite::CompressNone;
       break;
   }
 
   cmArchiveWrite a(fout, compress, format.empty() ? "paxr" : format,
-                   compressionLevel);
+                   compressionLevel, numThreads);
 
   if (!a.Open()) {
     cmSystemTools::Error(a.GetError());
@@ -4197,21 +4197,21 @@ bool cmSystemTools::CheckRPath(std::string const& file,
   return newRPath.empty();
 }
 
-bool cmSystemTools::RepeatedRemoveDirectory(std::string const& dir)
+cmsys::Status cmSystemTools::RepeatedRemoveDirectory(std::string const& dir)
 {
 #ifdef _WIN32
   // Windows sometimes locks files temporarily so try a few times.
   WindowsFileRetry retry = cmSystemTools::GetWindowsFileRetry();
 
-  for (unsigned int i = 0; i < retry.Count; ++i) {
-    if (cmSystemTools::RemoveADirectory(dir)) {
-      return true;
-    }
+  cmsys::Status status;
+  unsigned int tries = 0;
+  while (!(status = cmSystemTools::RemoveADirectory(dir)) &&
+         ++tries < retry.Count) {
     cmSystemTools::Delay(retry.Delay);
   }
-  return false;
+  return status;
 #else
-  return static_cast<bool>(cmSystemTools::RemoveADirectory(dir));
+  return cmSystemTools::RemoveADirectory(dir);
 #endif
 }
 

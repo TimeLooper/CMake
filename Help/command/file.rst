@@ -615,11 +615,12 @@ Filesystem
   emitted.
 
   Specifying ``COPY_ON_ERROR`` enables copying the file as a fallback if
-  creating the link fails.  If the source is a directory, the destination
-  directory will be created if it does not exist, but no files will be copied
-  the from source one.  It can be useful for handling situations such as
+  creating the link fails.  It can be useful for handling situations such as
   ``<original>`` and ``<linkname>`` being on different drives or mount points,
   which would make them unable to support a hard link.
+  If the source is a directory, the destination directory will be created if
+  it does not exist.  Contents of the source directory will be copied to the
+  destination directory unless policy :policy:`CMP0205` is not set to ``NEW``.
 
 .. signature::
   file(CHMOD <files>... <directories>...
@@ -914,6 +915,7 @@ Archiving
     [COMPRESSION <compression>
     [COMPRESSION_LEVEL <compression-level>]]
     [MTIME <mtime>]
+    [THREADS <number>]
     [WORKING_DIRECTORY <dir>]
     [VERBOSE])
   :target: ARCHIVE_CREATE
@@ -932,12 +934,40 @@ Archiving
     ``7zip``, ``gnutar``, ``pax``, ``paxr``, ``raw`` and ``zip``.
     If ``FORMAT`` is not given, the default format is ``paxr``.
 
+    The default compression method depends on the format:
+
+    * ``7zip`` uses ``LZMA`` compression
+    * ``zip`` uses ``Deflate`` compression
+    * others uses no compression by default
+
   ``COMPRESSION <compression>``
     Some archive formats allow the type of compression to be specified.
     The ``7zip`` and ``zip`` archive formats already imply a specific type of
     compression.  The other formats use no compression by default, but can be
     directed to do so with the ``COMPRESSION`` option.  Valid values for
-    ``<compression>`` are ``None``, ``BZip2``, ``GZip``, ``XZ``, and ``Zstd``.
+    ``<compression>`` are:
+
+    * ``None``
+    * ``BZip2``
+    * ``Deflate``
+
+      .. versionadded:: 4.3
+
+      This is an alias for ``GZip``.
+
+    * ``GZip``
+    * ``LZMA``
+
+      .. versionadded:: 4.3
+
+    * ``LZMA2``
+
+      .. versionadded:: 4.3
+
+      This is an alias for ``XZ``.
+
+    * ``XZ``
+    * ``Zstd``
 
     .. note::
       With ``FORMAT`` set to ``raw``, only one file will be compressed
@@ -957,6 +987,14 @@ Archiving
 
   ``MTIME <mtime>``
     Specify the modification time recorded in tarball entries.
+
+  ``THREADS <number>``
+    .. versionadded:: 4.3
+
+    Use the ``<number>`` threads to operate on the archive.
+
+    The number of available cores on the machine will be used if set to ``0``.
+    Note that not all compression modes support threading in all environments.
 
   ``WORKING_DIRECTORY <dir>``
     .. versionadded:: 3.31
@@ -1121,6 +1159,8 @@ Handling Runtime Binaries
 
   The following arguments specify filters for including or excluding libraries
   to be resolved. See below for a full description of how they work.
+  Directory separators in file paths may be matched using forward
+  slashes unless policy :policy:`CMP0207` is not set to ``NEW``.
 
     ``PRE_INCLUDE_REGEXES <regexes>...``
       List of pre-include regexes through which to filter the names of

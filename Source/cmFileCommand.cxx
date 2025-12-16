@@ -93,8 +93,8 @@ bool HandleWriteImpl(std::vector<std::string> const& args, bool append,
   i++;
 
   if (!status.GetMakefile().CanIWriteThisFile(fileName)) {
-    std::string e =
-      "attempted to write a file: " + fileName + " into a source directory.";
+    std::string e = cmStrCat("attempted to write a file: ", fileName,
+                             " into a source directory.");
     status.SetError(e);
     cmSystemTools::SetFatalErrorOccurred();
     return false;
@@ -686,7 +686,6 @@ bool HandleGlobImpl(std::vector<std::string> const& args, bool recurse,
   std::vector<std::string> files;
   bool configureDepends = false;
   bool warnConfigureLate = false;
-  cmake::WorkingMode const workingMode = cm->GetWorkingMode();
   while (i != args.end()) {
     if (*i == "LIST_DIRECTORIES") {
       ++i; // skip LIST_DIRECTORIES
@@ -737,7 +736,7 @@ bool HandleGlobImpl(std::vector<std::string> const& args, bool recurse,
           "CONFIGURE_DEPENDS flag was given after a glob expression was "
           "already evaluated.");
       }
-      if (workingMode != cmake::NORMAL_MODE) {
+      if (cm->GetState()->GetRole() != cmState::Role::Project) {
         status.GetMakefile().IssueMessage(
           MessageType::FATAL_ERROR,
           "CONFIGURE_DEPENDS is invalid for script and find package modes.");
@@ -771,13 +770,13 @@ bool HandleGlobImpl(std::vector<std::string> const& args, bool recurse,
           if (globMessage.type == cmsys::Glob::cyclicRecursion) {
             status.GetMakefile().IssueMessage(
               MessageType::AUTHOR_WARNING,
-              "Cyclic recursion detected while globbing for '" + *i + "':\n" +
-                globMessage.content);
+              cmStrCat("Cyclic recursion detected while globbing for '", *i,
+                       "':\n", globMessage.content));
           } else if (globMessage.type == cmsys::Glob::error) {
             status.GetMakefile().IssueMessage(
               MessageType::FATAL_ERROR,
-              "Error has occurred while globbing for '" + *i + "' - " +
-                globMessage.content);
+              cmStrCat("Error has occurred while globbing for '", *i, "' - ",
+                       globMessage.content));
             shouldExit = true;
           } else if (cm->GetDebugOutput() || cm->GetTrace()) {
             status.GetMakefile().IssueMessage(
@@ -930,8 +929,8 @@ bool HandleTouchImpl(std::vector<std::string> const& args, bool create,
         cmStrCat(status.GetMakefile().GetCurrentSourceDirectory(), '/', arg);
     }
     if (!status.GetMakefile().CanIWriteThisFile(tfile)) {
-      std::string e =
-        "attempted to touch a file: " + tfile + " in a source directory.";
+      std::string e = cmStrCat("attempted to touch a file: ", tfile,
+                               " in a source directory.");
       status.SetError(e);
       cmSystemTools::SetFatalErrorOccurred();
       return false;
@@ -3107,8 +3106,9 @@ bool HandleTimestampCommand(std::vector<std::string> const& args,
     if (args[argsIndex] == "UTC") {
       utcFlag = true;
     } else {
-      std::string e = " TIMESTAMP sub-command does not recognize option " +
-        args[argsIndex] + ".";
+      std::string e =
+        cmStrCat(" TIMESTAMP sub-command does not recognize option ",
+                 args[argsIndex], '.');
       status.SetError(e);
       return false;
     }
@@ -3221,9 +3221,15 @@ bool HandleCreateLinkCommand(std::vector<std::string> const& args,
     return false;
   }
 
+  cmPolicies::PolicyStatus const cmp0205 =
+    status.GetMakefile().GetPolicyStatus(cmPolicies::CMP0205);
+
   // Hard link requires original file to exist.
-  if (!arguments.Symbolic && !cmSystemTools::FileExists(fileName)) {
-    result = "Cannot hard link \'" + fileName + "\' as it does not exist.";
+  if (!arguments.Symbolic &&
+      (!cmSystemTools::PathExists(fileName) ||
+       (cmp0205 != cmPolicies::NEW && !cmSystemTools::FileExists(fileName)))) {
+    result =
+      cmStrCat("Cannot hard link \'", fileName, "\' as it does not exist.");
     if (!arguments.Result.empty()) {
       status.GetMakefile().AddDefinition(arguments.Result, result);
       return true;
@@ -3233,19 +3239,29 @@ bool HandleCreateLinkCommand(std::vector<std::string> const& args,
   }
 
   // Check if the new file already exists and remove it.
-  if (cmSystemTools::PathExists(newFileName) &&
-      !cmSystemTools::RemoveFile(newFileName)) {
-    auto err = cmStrCat("Failed to create link '", newFileName,
-                        "' because existing path cannot be removed: ",
-                        cmSystemTools::GetLastSystemError(), '\n');
-
-    if (!arguments.Result.empty()) {
-      status.GetMakefile().AddDefinition(arguments.Result, err);
-      return true;
+  if (cmSystemTools::PathExists(newFileName)) {
+    cmsys::Status rmStatus;
+    if (cmp0205 == cmPolicies::NEW &&
+        cmSystemTools::FileIsDirectory(newFileName)) {
+      rmStatus = cmSystemTools::RepeatedRemoveDirectory(newFileName);
+    } else {
+      rmStatus = cmSystemTools::RemoveFile(newFileName);
     }
-    status.SetError(err);
-    return false;
+    if (!rmStatus) {
+      std::string err = cmStrCat("Failed to create link '", newFileName,
+                                 "' because existing path cannot be removed: ",
+                                 rmStatus.GetString(), '\n');
+
+      if (!arguments.Result.empty()) {
+        status.GetMakefile().AddDefinition(arguments.Result, err);
+        return true;
+      }
+      status.SetError(err);
+      return false;
+    }
   }
+
+  bool const sourceIsDirectory = cmSystemTools::FileIsDirectory(fileName);
 
   // Whether the operation completed successfully.
   bool completed = false;
@@ -3261,20 +3277,54 @@ bool HandleCreateLinkCommand(std::vector<std::string> const& args,
                         "': ", linked.GetString());
     }
   } else {
-    cmsys::Status linked =
-      cmSystemTools::CreateLinkQuietly(fileName, newFileName);
-    if (linked) {
-      completed = true;
-    } else {
-      result = cmStrCat("failed to create link '", newFileName,
-                        "': ", linked.GetString());
+    bool needToTry = true;
+    if (sourceIsDirectory) {
+      if (cmp0205 == cmPolicies::NEW) {
+        needToTry = false;
+      } else if (cmp0205 == cmPolicies::WARN) {
+        status.GetMakefile().IssueMessage(
+          MessageType::AUTHOR_WARNING,
+          cmStrCat("Path\n  ", fileName,
+                   "\nis directory. Hardlinks creation is not supported for "
+                   "directories.\n",
+                   cmPolicies::GetPolicyWarning(cmPolicies::CMP0205)));
+      }
     }
+
+    if (needToTry) {
+      cmsys::Status linked =
+        cmSystemTools::CreateLinkQuietly(fileName, newFileName);
+      if (linked) {
+        completed = true;
+      } else {
+        result = cmStrCat("failed to create link '", newFileName,
+                          "': ", linked.GetString());
+      }
+    } else {
+      result =
+        cmStrCat("failed to create link '", newFileName, "': not supported");
+    }
+  }
+
+  if (arguments.CopyOnError && cmp0205 == cmPolicies::WARN &&
+      sourceIsDirectory) {
+    status.GetMakefile().IssueMessage(
+      MessageType::AUTHOR_WARNING,
+      cmStrCat("Path\n  ", fileName,
+               "\nis directory. It will be copied recursively when NEW policy "
+               "behavior applies for CMP0205.\n",
+               cmPolicies::GetPolicyWarning(cmPolicies::CMP0205)));
   }
 
   // Check if copy-on-error is enabled in the arguments.
   if (!completed && arguments.CopyOnError) {
-    cmsys::Status copied =
-      cmsys::SystemTools::CopyFileAlways(fileName, newFileName);
+    cmsys::Status copied;
+    if (cmp0205 == cmPolicies::NEW && sourceIsDirectory) {
+      copied = cmsys::SystemTools::CopyADirectory(fileName, newFileName);
+    } else {
+      copied = cmsys::SystemTools::CopyFileAlways(fileName, newFileName);
+    }
+
     if (copied) {
       completed = true;
     } else {
@@ -3312,7 +3362,7 @@ bool HandleGetRuntimeDependenciesCommand(std::vector<std::string> const& args,
     return false;
   }
 
-  if (status.GetMakefile().GetState()->GetMode() == cmState::Project) {
+  if (status.GetMakefile().GetState()->GetRole() == cmState::Role::Project) {
     status.GetMakefile().IssueMessage(
       MessageType::AUTHOR_WARNING,
       "You have used file(GET_RUNTIME_DEPENDENCIES)"
@@ -3421,7 +3471,7 @@ bool HandleGetRuntimeDependenciesCommand(std::vector<std::string> const& args,
       deps.push_back(firstPath);
       if (!parsedArgs.RPathPrefix.empty()) {
         status.GetMakefile().AddDefinition(
-          parsedArgs.RPathPrefix + "_" + firstPath,
+          cmStrCat(parsedArgs.RPathPrefix, '_', firstPath),
           cmList::to_string(archive.GetRPaths().at(firstPath)));
       }
     } else if (!parsedArgs.ConflictingDependenciesPrefix.empty()) {
@@ -3429,7 +3479,7 @@ bool HandleGetRuntimeDependenciesCommand(std::vector<std::string> const& args,
       std::vector<std::string> paths;
       paths.insert(paths.begin(), val.second.begin(), val.second.end());
       std::string varName =
-        parsedArgs.ConflictingDependenciesPrefix + "_" + val.first;
+        cmStrCat(parsedArgs.ConflictingDependenciesPrefix, '_', val.first);
       std::string pathsStr = cmList::to_string(paths);
       status.GetMakefile().AddDefinition(varName, pathsStr);
     } else {
@@ -3618,6 +3668,7 @@ bool HandleArchiveCreateCommand(std::vector<std::string> const& args,
     // accepted without one and treated as if an empty value were given.
     // Fixing this would require a policy.
     ArgumentParser::Maybe<std::string> MTime;
+    std::string Threads;
     std::string WorkingDirectory;
     bool Verbose = false;
     // "PATHS" requires at least one value, but use a custom check below.
@@ -3631,6 +3682,7 @@ bool HandleArchiveCreateCommand(std::vector<std::string> const& args,
       .Bind("COMPRESSION"_s, &Arguments::Compression)
       .Bind("COMPRESSION_LEVEL"_s, &Arguments::CompressionLevel)
       .Bind("MTIME"_s, &Arguments::MTime)
+      .Bind("THREADS"_s, &Arguments::Threads)
       .Bind("WORKING_DIRECTORY"_s, &Arguments::WorkingDirectory)
       .Bind("VERBOSE"_s, &Arguments::Verbose)
       .Bind("PATHS"_s, &Arguments::Paths);
@@ -3674,7 +3726,10 @@ bool HandleArchiveCreateCommand(std::vector<std::string> const& args,
   static std::map<std::string, cmSystemTools::cmTarCompression>
     compressionTypeMap = { { "None", cmSystemTools::TarCompressNone },
                            { "BZip2", cmSystemTools::TarCompressBZip2 },
+                           { "Deflate", cmSystemTools::TarCompressGZip },
                            { "GZip", cmSystemTools::TarCompressGZip },
+                           { "LZMA", cmSystemTools::TarCompressLZMA },
+                           { "LZMA2", cmSystemTools::TarCompressXZ },
                            { "XZ", cmSystemTools::TarCompressXZ },
                            { "Zstd", cmSystemTools::TarCompressZstd } };
 
@@ -3690,7 +3745,7 @@ bool HandleArchiveCreateCommand(std::vector<std::string> const& args,
   }
 
   int compressionLevel = 0;
-  int minCompressionLevel = 0;
+  constexpr int minCompressionLevel = 0;
   int maxCompressionLevel = 9;
   if (compress == cmSystemTools::TarCompressZstd) {
     maxCompressionLevel = 19;
@@ -3725,16 +3780,36 @@ bool HandleArchiveCreateCommand(std::vector<std::string> const& args,
     }
   }
 
+  // Use the single thread by default for backward compatibility
+  int threads = 1;
+  constexpr int minThreads = 0;
+  if (!parsedArgs.Threads.empty()) {
+    if (parsedArgs.Threads.size() != 1 &&
+        !std::isdigit(parsedArgs.Threads[0])) {
+      status.SetError(cmStrCat("number of threads ", parsedArgs.Threads,
+                               " should be at least ", minThreads));
+      cmSystemTools::SetFatalErrorOccurred();
+      return false;
+    }
+    threads = std::stoi(parsedArgs.Threads);
+    if (threads < minThreads) {
+      status.SetError(cmStrCat("number of threads ", parsedArgs.Threads,
+                               " should be at least ", minThreads));
+      cmSystemTools::SetFatalErrorOccurred();
+      return false;
+    }
+  }
+
   if (parsedArgs.Paths.empty()) {
     status.SetError("ARCHIVE_CREATE requires a non-empty list of PATHS");
     cmSystemTools::SetFatalErrorOccurred();
     return false;
   }
 
-  if (!cmSystemTools::CreateTar(parsedArgs.Output, parsedArgs.Paths,
-                                parsedArgs.WorkingDirectory, compress,
-                                parsedArgs.Verbose, parsedArgs.MTime,
-                                parsedArgs.Format, compressionLevel)) {
+  if (!cmSystemTools::CreateTar(
+        parsedArgs.Output, parsedArgs.Paths, parsedArgs.WorkingDirectory,
+        compress, parsedArgs.Verbose, parsedArgs.MTime, parsedArgs.Format,
+        compressionLevel, threads)) {
     status.SetError(cmStrCat("failed to compress: ", parsedArgs.Output));
     cmSystemTools::SetFatalErrorOccurred();
     return false;

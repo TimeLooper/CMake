@@ -4,29 +4,29 @@ CPack Archive Generator
 CPack generator for packaging files into an archive, which can have
 any of the following formats:
 
-- 7Z - 7zip - (``.7z``)
+- 7Z - 7zip - (``.7z``) - LZMA compressed
 
   .. versionadded:: 3.1
 
-- TAR (``.tar``)
+- TAR (``.tar``) - no compression is used
 
   .. versionadded:: 4.0
 
-- TBZ2 (``.tar.bz2``)
+- TBZ2 (``.tar.bz2``) - BZip2 compressed
 
-- TGZ (``.tar.gz``)
+- TGZ (``.tar.gz``) - Deflate compressed
 
-- TXZ (``.tar.xz``)
+- TXZ (``.tar.xz``) - LZMA2 compressed
 
   .. versionadded:: 3.1
 
-- TZ (``.tar.Z``)
+- TZ (``.tar.Z``) - LZW compressed
 
-- TZST (``.tar.zst``)
+- TZST (``.tar.zst``) - Zstandard compressed
 
   .. versionadded:: 3.16
 
-- ZIP (``.zip``)
+- ZIP (``.zip``) - Deflate compressed
 
 When this generator is called from ``CPackSourceConfig.cmake`` (or through
 the ``package_source`` target), then the generated archive will contain all
@@ -99,6 +99,24 @@ Variables specific to CPack Archive generator
 
   If enabled (``ON``) multiple packages are generated. By default a single package
   containing files of all components is generated.
+
+.. variable:: CPACK_ARCHIVE_UID
+
+  .. versionadded: 4.3
+
+  Set the UID of entries contained in the archive.
+  Specify ``-1`` to use the UID of the current user.
+
+  :Default: ``0`` (see policy :policy:`CMP0206`)
+
+.. variable:: CPACK_ARCHIVE_GID
+
+  .. versionadded: 4.3
+
+  Set the GID of entries contained in the archive.
+  Specify ``-1`` to use the GID of the current user.
+
+  :Default: ``0`` (see policy :policy:`CMP0206`)
 
 Variables used by CPack Archive generator
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
