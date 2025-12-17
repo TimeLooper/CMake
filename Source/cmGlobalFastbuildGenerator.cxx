@@ -1681,7 +1681,7 @@ void cmGlobalFastbuildGenerator::WriteSolution()
     WriteArray("SolutionProjects", Wrap(VSProjectsWithoutFolder), 1);
   }
   WriteVariable("SolutionBuildProject",
-                Quote(cmStrCat(FASTBUILD_VS_ALL_PROJECT_NAME, "-vcxproj")));
+                Quote(cmStrCat(FASTBUILD_VS_ALL_PROJECT_NAME, "-vcxproj")), 1);
   *this->BuildFileStream << "}\n";
 }
 
