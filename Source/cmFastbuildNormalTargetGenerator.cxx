@@ -964,7 +964,19 @@ void cmFastbuildNormalTargetGenerator::Generate()
 
   fastbuildTarget.BasePath = this->GetMakefile()->GetCurrentSourceDirectory();
 
-  this->GetGlobalGenerator()->AddIDEProject(fastbuildTarget, Config, this->GeneratorTarget);
+  auto VSDebuggerWorkingDirectory = this->GeneratorTarget->GetProperty("VS_DEBUGGER_WORKING_DIRECTORY");
+  if (VSDebuggerWorkingDirectory.IsEmpty()) {
+    VSDebuggerWorkingDirectory = this->GeneratorTarget->GetProperty("DEBUGGER_WORKING_DIRECTORY");
+  }
+  auto XCodeDebuggerWorkingDirectory = this->GeneratorTarget->GetProperty("XCODE_DEBUGGER_WORKING_DIRECTORY");
+  if (XCodeDebuggerWorkingDirectory.IsEmpty()) {
+    XCodeDebuggerWorkingDirectory = this->GeneratorTarget->GetProperty("DEBUGGER_WORKING_DIRECTORY");
+  }
+  
+  fastbuildTarget.VSDebuggerWorkingDirectory = std::move(VSDebuggerWorkingDirectory);
+  fastbuildTarget.XCodeDebuggerWorkingDirectory = std::move(XCodeDebuggerWorkingDirectory);
+
+  this->GetGlobalGenerator()->AddIDEProject(fastbuildTarget, Config);
 
   AddStampExeIfApplicable(fastbuildTarget);
 

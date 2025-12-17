@@ -69,6 +69,7 @@ struct cmDocumentationEntry;
 #define FASTBUILD_UTIL_CONCURRENCY_GROUP_NAME "Utils"
 
 #define FASTBUILD_ALL_TARGET_NAME "all"
+#define FASTBUILD_VS_ALL_PROJECT_NAME "ALL_BUILD"
 #define FASTBUILD_CLEAN_TARGET_NAME "clean"
 
 #define FASTBUILD_NOOP_FILE_NAME "fbuild_noop"
@@ -330,6 +331,8 @@ struct FastbuildTarget : public FastbuildTargetBase
   FastbuildExecNodes PreLinkExecNodes;
   FastbuildExecNodes PostBuildExecNodes;
   std::string PchHeader;
+  std::string VSDebuggerWorkingDirectory;
+  std::string XCodeDebuggerWorkingDirectory;
   bool IsGlobal = false;
   bool ExcludeFromAll = false;
   bool AllowDistribution = true;
@@ -530,7 +533,7 @@ public:
 
   void WriteIDEProjects();
   std::string GetIDEBuildArgs() const;
-  void WriteVSBuildCommands();
+  void WriteVSBuildCommands(std::string const& name);
   void WriteXCodeBuildCommands();
   void WriteIDEProjectCommon(IDEProjectCommon const& project);
   void WriteIDEProjectConfig(std::vector<IDEProjectConfig> const& configs,
@@ -548,8 +551,7 @@ public:
   void AddCompiler(std::string const& lang, cmMakefile* mf);
   void AddLauncher(std::string const& prefix, std::string const& launcher,
                    std::string const& lang, std::string const& args);
-  void AddIDEProject(FastbuildTarget const& target, std::string const& config,
-                     cmGeneratorTarget* gt);
+  void AddIDEProject(FastbuildTarget const& target, std::string const& config);
 
   template <class T>
   void AddTarget(T target)

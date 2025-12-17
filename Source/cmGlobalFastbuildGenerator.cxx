@@ -1464,7 +1464,7 @@ void cmGlobalFastbuildGenerator::WriteIDEProjects()
     *this->BuildFileStream << "{\n";
     WriteVariable("ProjectOutput", Quote(VSProj.ProjectOutput), 1);
     WriteIDEProjectConfig(VSProj.ProjectConfigs);
-    WriteVSBuildCommands();
+    WriteVSBuildCommands(proj.first);
     WriteIDEProjectCommon(VSProj);
     if (VSProj.PchHeader != "") {
       WriteVariable("ForcedIncludes", Quote(VSProj.PchHeader), 1);
@@ -1500,18 +1500,22 @@ std::string cmGlobalFastbuildGenerator::GetIDEBuildArgs() const
   return FASTBUILD_DEFAULT_IDE_BUILD_ARGS;
 }
 
-void cmGlobalFastbuildGenerator::WriteVSBuildCommands()
+void cmGlobalFastbuildGenerator::WriteVSBuildCommands(std::string const& name)
 {
+  auto targetName = "^$(ProjectName)";
+  if (name == FASTBUILD_VS_ALL_PROJECT_NAME) {
+    targetName = FASTBUILD_ALL_TARGET_NAME;
+  }
   std::string const ideArgs = this->GetIDEBuildArgs();
   WriteVariable(
     "ProjectBuildCommand",
     Quote(cmStrCat(FASTBUILD_IDE_VS_COMMAND_PREFIX, this->FastbuildCommand,
-                   ideArgs, " ^$(ProjectName)")),
+                   ideArgs, " ", targetName)),
     1);
   WriteVariable(
     "ProjectRebuildCommand",
     Quote(cmStrCat(FASTBUILD_IDE_VS_COMMAND_PREFIX, this->FastbuildCommand,
-                   ideArgs, "-clean ^$(ProjectName)")),
+                   ideArgs, "-clean ", targetName)),
     1);
   WriteVariable("ProjectCleanCommand",
                 Quote(cmStrCat(FASTBUILD_IDE_VS_COMMAND_PREFIX,
@@ -1587,6 +1591,14 @@ void cmGlobalFastbuildGenerator::AddTargetAll()
     allAliasNode.PreBuildDependencies.emplace(FASTBUILD_NOOP_FILE_NAME);
   }
   this->AddTarget(std::move(allAliasNode));
+
+  FastbuildTarget all;
+  all.Name = FASTBUILD_ALL_TARGET_NAME;
+  all.BaseName = FASTBUILD_VS_ALL_PROJECT_NAME;
+  all.BasePath = this->GetCMakeInstance()->GetHomeDirectory();
+  all.Hidden = false;
+  auto& config = *this->GetConfigNames().begin();
+  AddIDEProject(all, config);
 }
 
 void cmGlobalFastbuildGenerator::AddGlobCheckExec()
@@ -1668,7 +1680,8 @@ void cmGlobalFastbuildGenerator::WriteSolution()
   if (!VSProjectsWithoutFolder.empty()) {
     WriteArray("SolutionProjects", Wrap(VSProjectsWithoutFolder), 1);
   }
-
+  WriteVariable("SolutionBuildProject",
+                Quote(cmStrCat(FASTBUILD_VS_ALL_PROJECT_NAME, "-vcxproj")));
   *this->BuildFileStream << "}\n";
 }
 
@@ -1886,7 +1899,7 @@ cmGlobalFastbuildGenerator::GetTargetByOutputName(
 }
 
 void cmGlobalFastbuildGenerator::AddIDEProject(FastbuildTarget const& target,
-                                               std::string const& config, cmGeneratorTarget* gt)
+                                               std::string const& config)
 {
   auto const& configs = GetConfigNames();
   if (std::find(configs.begin(), configs.end(), config) == configs.end()) {
@@ -1905,11 +1918,7 @@ void cmGlobalFastbuildGenerator::AddIDEProject(FastbuildTarget const& target,
   VSProject.ProjectBasePath = target.BasePath;
   VSProject.folder = relativeSubdir;
   VSProject.PchHeader = target.PchHeader;
-  VSProject.DebuggerWorkingDirectory =
-    gt->GetProperty("VS_DEBUGGER_WORKING_DIRECTORY");
-  if (VSProject.DebuggerWorkingDirectory.empty()) {
-    VSProject.DebuggerWorkingDirectory = this->GetDebuggerWorkingDirectory(gt);
-  }
+  VSProject.DebuggerWorkingDirectory = target.VSDebuggerWorkingDirectory;
   // XCode
   auto& XCodeProject = IDEProject.second;
   XCodeProject.Alias = target.BaseName + "-xcodeproj";
@@ -1917,12 +1926,7 @@ void cmGlobalFastbuildGenerator::AddIDEProject(FastbuildTarget const& target,
     cmStrCat("XCode/Projects/", relativeSubdir, '/',
              target.BaseName + ".xcodeproj/project.pbxproj");
   XCodeProject.ProjectBasePath = target.BasePath;
-  XCodeProject.DebuggerWorkingDirectory =
-    gt->GetProperty("XCODE_SCHEME_WORKING_DIRECTORY");
-  if (XCodeProject.DebuggerWorkingDirectory.empty()) {
-    XCodeProject.DebuggerWorkingDirectory =
-      this->GetDebuggerWorkingDirectory(gt);
-  }
+  XCodeProject.DebuggerWorkingDirectory = target.XCodeDebuggerWorkingDirectory;
 
   IDEProjectConfig VSConfig;
   VSConfig.Platform = this->Platform;
