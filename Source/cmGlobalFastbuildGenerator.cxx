@@ -1941,6 +1941,8 @@ void cmGlobalFastbuildGenerator::AddIDEProject(FastbuildTarget const& target,
   if (target.Name == FASTBUILD_ALL_TARGET_NAME) {
     VSProject.ProjectBasePath = "";
     XCodeProject.ProjectBasePath = "";
+    VSConfig.Target = "";
+    XCodeConfig.Target = "";
   }
 
   VSProject.ProjectConfigs.emplace_back(std::move(VSConfig));
