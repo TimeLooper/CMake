@@ -1510,7 +1510,7 @@ void cmGlobalFastbuildGenerator::WriteVSBuildCommands(std::string const& name)
   WriteVariable(
     "ProjectBuildCommand",
     Quote(cmStrCat(FASTBUILD_IDE_VS_COMMAND_PREFIX, this->FastbuildCommand,
-                   ideArgs, " ", targetName)),
+                   ideArgs, targetName)),
     1);
   WriteVariable(
     "ProjectRebuildCommand",
@@ -1519,7 +1519,7 @@ void cmGlobalFastbuildGenerator::WriteVSBuildCommands(std::string const& name)
     1);
   WriteVariable("ProjectCleanCommand",
                 Quote(cmStrCat(FASTBUILD_IDE_VS_COMMAND_PREFIX,
-                               this->FastbuildCommand, ideArgs, " clean")),
+                               this->FastbuildCommand, ideArgs, "clean")),
                 1);
 }
 void cmGlobalFastbuildGenerator::WriteXCodeBuildCommands()
@@ -1535,10 +1535,14 @@ void cmGlobalFastbuildGenerator::WriteXCodeBuildCommands()
 void cmGlobalFastbuildGenerator::WriteIDEProjectCommon(
   IDEProjectCommon const& project)
 {
-  WriteVariable("ProjectBasePath", Quote(project.ProjectBasePath), 1);
-  // So Fastbuild will pick up files relative to CMakeLists.txt
-  WriteVariable("ProjectInputPaths", Quote(project.ProjectBasePath), 1);
-  WriteVariable("PlatformToolset", Quote(this->MSVCToolsetVersion), 1);
+  if (!project.ProjectBasePath.empty()) {
+    WriteVariable("ProjectBasePath", Quote(project.ProjectBasePath), 1);
+    // So Fastbuild will pick up files relative to CMakeLists.txt
+    WriteVariable("ProjectInputPaths", Quote(project.ProjectBasePath), 1);
+  }
+  if (!this->MSVCToolsetVersion.empty()) {
+    WriteVariable("PlatformToolset", Quote(this->MSVCToolsetVersion), 1);
+  }
   if (project.DebuggerWorkingDirectory != "") {
     WriteVariable("LocalDebuggerWorkingDirectory",
         Quote(project.DebuggerWorkingDirectory), 1);
@@ -1933,6 +1937,11 @@ void cmGlobalFastbuildGenerator::AddIDEProject(FastbuildTarget const& target,
   IDEProjectConfig XCodeConfig;
   VSConfig.Target = XCodeConfig.Target = target.Name;
   VSConfig.Config = XCodeConfig.Config = config.empty() ? "DEFAULT" : config;
+
+  if (target.Name == FASTBUILD_ALL_TARGET_NAME) {
+    VSProject.ProjectBasePath = "";
+    XCodeProject.ProjectBasePath = "";
+  }
 
   VSProject.ProjectConfigs.emplace_back(std::move(VSConfig));
   XCodeProject.ProjectConfigs.emplace_back(std::move(XCodeConfig));
